@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase/classes/Sintomas.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 
 class AbaSintomas extends StatefulWidget {
   @override
@@ -15,47 +18,142 @@ class _AbaSintomasState extends State<AbaSintomas> {
   bool _coriza = false;
   bool _tosse = false;
   bool _espirro = false;
-  double temperatura = 34;
-  String label = "34";
+  double temperatura = 36;
+  String label = "36";
   String _mensagemErro = "";
+  String numProtocolo = "0";
+  int contador = 0;
+
+  List<String> urlImagens = [];
+
+  File _imagem;
+  String _idUsuarioLogado = "";
+  String _urlImagemRecuperada;
+  bool _subindoImagem = false;
+
+  void _recuperaId() async {
+    List _itens = [];
+    Firestore db = Firestore.instance;
+    await db.collection("sintomas").getDocuments().then((querySnapshot) {
+      querySnapshot.documents.forEach((result) {
+        setState(() {
+          _itens.add(result.data);
+        });
+      });
+    });
+    print(_itens.length);
+    numProtocolo = _itens.length.toString();
+  }
+
+  Future _recuperarImagem(String origemImagem) async {
+    File imagemSelecionada;
+    switch (origemImagem) {
+      case "camera":
+        imagemSelecionada =
+        await ImagePicker.pickImage(source: ImageSource.camera);
+        _imagem = imagemSelecionada;
+        if (_imagem != null) {
+          _subindoImagem = true;
+          _uploadImagem();
+        }
+        break;
+      case "galeria":
+        imagemSelecionada =
+        await ImagePicker.pickImage(source: ImageSource.gallery);
+
+        break;
+    }
+    setState(() {
+      _imagem = imagemSelecionada;
+      if (_imagem != null) {
+        _subindoImagem = true;
+        _uploadImagem();
+        contador++;
+      }
+    });
+  }
+
+  Future _uploadImagem() async {
+    FirebaseAuth auth = FirebaseAuth.instance;
+    FirebaseUser usuarioLogado = await auth.currentUser();
+
+    _idUsuarioLogado = usuarioLogado.uid;
+
+    FirebaseStorage storage = FirebaseStorage.instance;
+    StorageReference pastaRaiz = storage.ref();
+    StorageReference arquivo = pastaRaiz.child("imagens").child(_idUsuarioLogado +"-"+ numProtocolo +"-"+ contador.toString() + ".jpg");
+
+    StorageUploadTask task = arquivo.putFile(_imagem);
+
+    task.events.listen((StorageTaskEvent storageEvent) {
+      if (storageEvent.type == StorageTaskEventType.progress) {
+        setState(() {
+          _subindoImagem = true;
+        });
+      } else if (storageEvent.type == StorageTaskEventType.success) {
+        setState(() {
+          _subindoImagem = false;
+        });
+      }
+    });
+
+    task.onComplete.then((StorageTaskSnapshot snapshot) {
+      _recuperarUrlImagem(snapshot);
+    });
+  }
+
+  Future _recuperarUrlImagem(StorageTaskSnapshot snapshot) async {
+    String url = await snapshot.ref.getDownloadURL();
+    urlImagens.add(url);
+
+    setState(() {
+      _urlImagemRecuperada = url;
+    });
+  }
+
+  void _limparCampos(){
+    _controlerDescricao.text = "";
+    _febre = false;
+    _diarreia = false;
+    _coriza = false;
+    _tosse = false;
+    _espirro = false;
+    temperatura = 31;
+    label = "31";
+    _mensagemErro = "";
+    urlImagens = [];
+  }
 
   _validaCampos() async {
-    String _descricao = _controlerDescricao.text.toString();
-
-    if (_descricao.isNotEmpty) {
-      setState(() {
-        _mensagemErro = "Cadastrado com Sucesso!";
-      });
-
+    if (_controlerDescricao.text.isNotEmpty) {
+      Firestore db = Firestore.instance;
       FirebaseAuth auth = FirebaseAuth.instance;
       FirebaseUser usuarioLogado = await auth.currentUser();
 
       Sintomas sintomas = Sintomas();
+      sintomas.protocolo = numProtocolo;
       sintomas.idUsuario = usuarioLogado.uid;
-      sintomas.descricao = _descricao;
+      sintomas.descricao = _controlerDescricao.text.toString();
+      sintomas.febre = _febre;
+      sintomas.diarreia = _diarreia;
       sintomas.coriza = _coriza;
       sintomas.tosse = _tosse;
       sintomas.espirro = _espirro;
-      sintomas.febre = _febre;
-      sintomas.diarreia = _diarreia;
-      sintomas.descricao = _descricao;
       sintomas.temperatura = temperatura;
+      contador = 0;
 
-      await _cadastroSintomas(sintomas);
-    } else {
-      setState(() {
-        _mensagemErro = "Por favor descreva oque está sentindo!";
-      });
+      db.collection("sistomas").add(sintomas.toMap());
+      _limparCampos();
+      _recuperaId();
     }
   }
 
-  _cadastroSintomas(Sintomas sintomas) async {
-    FirebaseAuth auth = FirebaseAuth.instance;
-    Firestore db = Firestore.instance;
-
-    db.collection("sistomas").document(sintomas.idUsuario).setData(sintomas.toMap());
-
-    //Navigator.pushReplacementNamed(context, "/home");
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+    _recuperaId();
+    _limparCampos();
   }
 
   @override
@@ -71,7 +169,7 @@ class _AbaSintomasState extends State<AbaSintomas> {
               children: <Widget>[
                 CheckboxListTile(
                     title: Text("Febre"),
-                    activeColor: Color(0xff123456),
+                    activeColor: Color((0xff123456),),
                     value: _febre,
                     onChanged: (bool valor) {
                       setState(() {
@@ -80,7 +178,7 @@ class _AbaSintomasState extends State<AbaSintomas> {
                     }),
                 CheckboxListTile(
                     title: Text("Diarréia"),
-                    activeColor: Color(0xff123456),
+                    activeColor: Color((0xff123456),),
                     value: _diarreia,
                     onChanged: (bool valor) {
                       setState(() {
@@ -89,7 +187,7 @@ class _AbaSintomasState extends State<AbaSintomas> {
                     }),
                 CheckboxListTile(
                     title: Text("Coriza"),
-                    activeColor: Color(0xff123456),
+                    activeColor: Color((0xff123456),),
                     value: _coriza,
                     onChanged: (bool valor) {
                       setState(() {
@@ -98,7 +196,7 @@ class _AbaSintomasState extends State<AbaSintomas> {
                     }),
                 CheckboxListTile(
                     title: Text("Tosse"),
-                    activeColor: Color(0xff123456),
+                    activeColor: Color((0xff123456),),
                     value: _tosse,
                     onChanged: (bool valor) {
                       setState(() {
@@ -107,7 +205,7 @@ class _AbaSintomasState extends State<AbaSintomas> {
                     }),
                 CheckboxListTile(
                     title: Text("Espirro"),
-                    activeColor: Color(0xff123456),
+                    activeColor: Color((0xff123456),),
                     value: _espirro,
                     onChanged: (bool valor) {
                       setState(() {
@@ -136,14 +234,31 @@ class _AbaSintomasState extends State<AbaSintomas> {
                     max: 45,
                     label: label,
                     divisions: 100,
-                    activeColor: Color(0xff123456),
-                    inactiveColor: Color(0xff123456),
+                    activeColor: Color((0xff123456),),
+                    inactiveColor: Color((0xff123456),),
                     onChanged: (double novoValor){
                       setState(() {
                         temperatura = novoValor;
                         label = novoValor.toString();
                       });
                     }),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    FlatButton(
+                      onPressed: () {
+                        _recuperarImagem("camera");
+                      },
+                      child: Text("Câmera"),
+                    ),
+                    FlatButton(
+                      onPressed: () {
+                        _recuperarImagem("galeria");
+                      },
+                      child: Text("Galeria"),
+                    ),
+                  ],
+                ),
                 Padding(
                   padding: EdgeInsets.only(bottom: 10, top: 16),
                   child: RaisedButton(
@@ -154,7 +269,7 @@ class _AbaSintomasState extends State<AbaSintomas> {
                       color: Colors.blue,
                       padding: EdgeInsets.fromLTRB(32, 16, 32, 16),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                          borderRadius: BorderRadius.circular(32)),
                       onPressed: () {
                         _validaCampos();
                       }),
